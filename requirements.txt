@@ -3,3 +3,4 @@ uvicorn
 pypdf
 pandas
 pdfplumber
+python-multipart

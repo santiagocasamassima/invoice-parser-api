@@ -10,7 +10,7 @@ app = FastAPI()
 
 
 # ===============================
-#   EXTRACCION DE TEXTO
+#   EXTRACCIÓN DE TEXTO
 # ===============================
 
 def extraer_texto(pdf_path: str) -> str:
@@ -55,9 +55,9 @@ def procesar_factura(pdf_path: str):
     #      FECHA DE EMISIÓN
     # =====================================
     m_fecha = re.search(
-        r"(?:Fecha(?:\s+de\s+Emisi[oó]n)?[:\s]+)(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})",
-        texto_plano,
-        flags=re.IGNORECASE
+        r"(?:Fecha(?:\s+de\s+Emisi[oó]n)?[:\s]+)"
+        r"(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})",
+        texto_plano, flags=re.IGNORECASE
     )
     if m_fecha:
         datos["fecha"] = m_fecha.group(1)
@@ -67,8 +67,7 @@ def procesar_factura(pdf_path: str):
     # =====================================
     m_fact = re.search(
         r"N[º°]?\s*([0-9]{4})\s*-\s*([0-9]{6,8})",
-        texto_plano,
-        flags=re.IGNORECASE
+        texto_plano, flags=re.IGNORECASE
     )
     if m_fact:
         datos["nro_factura"] = f"{m_fact.group(1)}-{m_fact.group(2)}"
@@ -78,8 +77,7 @@ def procesar_factura(pdf_path: str):
     # =====================================
     m_cuit = re.search(
         r"CUIT[:\s-]*([0-9\-]{11,13})",
-        texto_plano,
-        flags=re.IGNORECASE
+        texto_plano, flags=re.IGNORECASE
     )
     if m_cuit:
         datos["cuit_emisor"] = m_cuit.group(1)
@@ -89,8 +87,7 @@ def procesar_factura(pdf_path: str):
     # =====================================
     m_cae = re.search(
         r"CAE(?:\s*NRO)?[:\s]*([0-9]{10,})",
-        texto_plano,
-        flags=re.IGNORECASE
+        texto_plano, flags=re.IGNORECASE
     )
     if m_cae:
         datos["cae"] = m_cae.group(1)
@@ -99,9 +96,7 @@ def procesar_factura(pdf_path: str):
     #      PROVEEDOR
     # =====================================
     proveedor = df["linea"][df["linea"].str.contains(
-        r"S\.A\.|S\.R\.L|S\.A|SRL|Ltda",
-        case=False,
-        regex=True
+        r"S\.A\.|S\.R\.L|S\.A|SRL|Ltda", case=False, regex=True
     )]
     if not proveedor.empty:
         datos["proveedor"] = proveedor.iloc[0]
@@ -109,19 +104,32 @@ def procesar_factura(pdf_path: str):
         datos["proveedor"] = df.iloc[0]["linea"]
 
     # =====================================
-    #      TOTAL (siempre el mayor monto)
+    #      TOTAL (extracción robusta AR/US)
     # =====================================
-    montos_brutos = re.findall(
-        r"\b[0-9]{1,3}(?:\.[0-9]{3})*,[0-9]{2}\b",
-        texto_plano
-    )
+
+    # Captura ambos formatos:
+    #  - 1.234.567,89  (AR)
+    #  - 1,234,567.89  (US)
+    #  - 15801641.08   (sin separadores)
+    #  - 1 234 567,89  (con espacios)
+    patron_monto = r"\b(?:[0-9]{1,3}(?:[.,][0-9]{3})*[.,][0-9]{2})\b"
+
+    montos_brutos = re.findall(patron_monto, texto_plano)
 
     if montos_brutos:
-        montos_float = [
-            float(m.replace(".", "").replace(",", "."))
-            for m in montos_brutos
-        ]
-        datos["total"] = max(montos_float)
+        montos_float = []
+        for m in montos_brutos:
+
+            # Sacar separadores
+            limpio = m.replace(".", "").replace(",", "")
+
+            # últimos 2 dígitos = centavos
+            if len(limpio) > 2:
+                valor = float(limpio[:-2] + "." + limpio[-2:])
+                montos_float.append(valor)
+
+        if montos_float:
+            datos["total"] = max(montos_float)
 
     # =====================================
     #      CAMPOS FIJOS
@@ -133,7 +141,7 @@ def procesar_factura(pdf_path: str):
 
 
 # ===============================
-#    ENDPOINT PUBLICO
+#    ENDPOINT PÚBLICO
 # ===============================
 
 @app.post("/procesar_factura/")
@@ -150,3 +158,4 @@ async def procesar_factura_api(file: UploadFile = File(...)):
     os.remove(tmp_path)
 
     return resultado
+
